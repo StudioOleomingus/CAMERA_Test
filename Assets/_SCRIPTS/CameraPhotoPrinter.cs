@@ -3,34 +3,24 @@ using UnityEngine;
 /// <summary>
 /// Attach this script to any Camera. Press Space to take a "photo" —
 /// it renders what the camera sees onto a RenderTexture, copies it to a
-/// Texture2D, then spawns a Plane in front of the camera with that
-/// texture applied like a printed photograph.
+/// Texture2D, then applies that texture to an existing billboard
+/// GameObject in the scene.
 /// </summary>
 public class CameraPhotoPrinter : MonoBehaviour
 {
     [Header("Photo Settings")]
-    [Tooltip("Resolution width of the captured photo.")]
-    public int photoWidth = 1920;
+    [Tooltip("Resolution width of the captured photo (4:3 aspect ratio).")]
+    public int photoWidth = 1024;
 
-    [Tooltip("Resolution height of the captured photo.")]
-    public int photoHeight = 1080;
+    [Tooltip("Resolution height of the captured photo (4:3 aspect ratio).")]
+    public int photoHeight = 768;
 
-    [Header("Spawn Settings")]
-    [Tooltip("How far in front of the camera the photo spawns.")]
-    public float spawnDistance = 2f;
-
-    [Tooltip("How far below the camera's forward line the photo drops (simulates falling/printing).")]
-    public float spawnDropOffset = 0.5f;
-
-    [Tooltip("Scale of the spawned photo plane (width). Height is auto-calculated from aspect ratio.")]
-    public float photoWorldWidth = 0.4f;
-
-    [Header("Physics")]
-    [Tooltip("If true, the spawned photo will have a Rigidbody and fall with gravity.")]
-    public bool usePhysics = true;
+    [Header("Billboard")]
+    [Tooltip("The existing billboard GameObject in the scene to display the photo on.")]
+    public GameObject billboard;
 
     [Header("Optional")]
-    [Tooltip("A material to clone for each photo. If left empty, a default Unlit material is created.")]
+    [Tooltip("A material to clone for the billboard. If left empty, the billboard's existing material is used and its texture is replaced.")]
     public Material baseMaterial;
 
     private Camera _cam;
@@ -41,6 +31,13 @@ public class CameraPhotoPrinter : MonoBehaviour
         if (_cam == null)
         {
             Debug.LogError("CameraPhotoPrinter: No Camera component found on this GameObject!");
+            enabled = false;
+            return;
+        }
+
+        if (billboard == null)
+        {
+            Debug.LogError("CameraPhotoPrinter: No billboard GameObject assigned!");
             enabled = false;
         }
     }
@@ -54,12 +51,12 @@ public class CameraPhotoPrinter : MonoBehaviour
     }
 
     /// <summary>
-    /// Captures the camera view and spawns a textured plane.
+    /// Captures the camera view and applies it to the billboard.
     /// </summary>
     public void TakePhoto()
     {
         Texture2D photo = CaptureCamera();
-        SpawnPhotoPlane(photo);
+        ApplyPhotoToBillboard(photo);
     }
 
     /// <summary>
@@ -69,7 +66,7 @@ public class CameraPhotoPrinter : MonoBehaviour
     {
         // Create a temporary RenderTexture
         RenderTexture rt = new RenderTexture(photoWidth, photoHeight, 24);
-        
+
         // Remember the camera's original target
         RenderTexture previousTarget = _cam.targetTexture;
 
@@ -95,66 +92,30 @@ public class CameraPhotoPrinter : MonoBehaviour
     }
 
     /// <summary>
-    /// Creates a Plane primitive, applies the photo texture, and positions it in front of the camera.
+    /// Applies the captured photo texture to the billboard GameObject's material.
     /// </summary>
-    private void SpawnPhotoPlane(Texture2D photo)
+    private void ApplyPhotoToBillboard(Texture2D photo)
     {
-        // Create the plane
-        GameObject photoPlane = GameObject.CreatePrimitive(PrimitiveType.Plane);
-        photoPlane.name = "Photo_" + System.DateTime.Now.ToString("HHmmss_fff");
+        Renderer renderer = billboard.GetComponent<Renderer>();
+        if (renderer == null)
+        {
+            Debug.LogError("CameraPhotoPrinter: Billboard has no Renderer component!");
+            return;
+        }
 
-        // Calculate aspect-correct scale
-        // Unity's default Plane is 10x10 units, so we divide desired size by 10
-        float aspect = (float)photoWidth / photoHeight;
-        float scaleX = photoWorldWidth / 10f;
-        float scaleZ = (photoWorldWidth / aspect) / 10f;
-        photoPlane.transform.localScale = new Vector3(scaleX, 1f, scaleZ);
-
-        // Position it in front of the camera, slightly below center
-        Vector3 spawnPos = _cam.transform.position
-                         + _cam.transform.forward * spawnDistance
-                         + _cam.transform.right * 0.1f
-                         - _cam.transform.up * spawnDropOffset;
-        photoPlane.transform.position = spawnPos;
-
-        // Orient the plane so its face points back toward the camera
-        // Unity's default Plane faces up (+Y), so we rotate it to face the camera
-        photoPlane.transform.rotation = Quaternion.LookRotation(_cam.transform.up, -_cam.transform.forward);
-
-        // Create and assign material
-        Material mat;
         if (baseMaterial != null)
         {
-            mat = new Material(baseMaterial);
+            // Clone the provided base material and assign the photo
+            Material mat = new Material(baseMaterial);
+            mat.mainTexture = photo;
+            renderer.material = mat;
         }
         else
         {
-            // Use Unlit so the photo isn't affected by scene lighting
-            Shader unlitShader = Shader.Find("Unlit/Texture");
-            if (unlitShader == null)
-            {
-                // Fallback if Unlit/Texture isn't included in the build
-                unlitShader = Shader.Find("Standard");
-            }
-            mat = new Material(unlitShader);
-        }
-        mat.mainTexture = photo;
-
-        // Make the material double-sided by disabling culling (Standard shader)
-        mat.SetInt("_Cull", (int)UnityEngine.Rendering.CullMode.Off);
-
-        Renderer renderer = photoPlane.GetComponent<Renderer>();
-        renderer.material = mat;
-
-        // Optionally add physics so the photo "falls" like a real print
-        if (usePhysics)
-        {
-            Rigidbody rb = photoPlane.AddComponent<Rigidbody>();
-            rb.mass = 0.05f;
-            rb.linearDamping = 1f;
-            rb.angularDamping = 1f;
+            // Replace the texture on the billboard's existing material
+            renderer.material.mainTexture = photo;
         }
 
-        Debug.Log($"Photo taken! Spawned '{photoPlane.name}'");
+        Debug.Log("Photo taken and applied to billboard!");
     }
 }
